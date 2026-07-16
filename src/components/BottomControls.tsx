@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useStore } from '../lib/store';
 import { playOpen, playWin, playLoss, resumeAudio } from '../lib/sounds';
 import { fmt } from '../lib/markets';
@@ -21,8 +21,24 @@ export default function BottomControls() {
 
   const [lastResult, setLastResult] = useState<{ won: boolean; profit: number; market: string } | null>(null);
   const [trading, setTrading] = useState(false);
+  const [, forceTick] = useState(0);
 
   const openTrades = trades.filter(t => !t.resolved);
+
+  // Tick every second so the nearest-expiry countdown below stays live
+  // instead of only updating when something else re-renders the component.
+  useEffect(() => {
+    if (openTrades.length === 0) return;
+    const iv = setInterval(() => forceTick(t => t + 1), 1000);
+    return () => clearInterval(iv);
+  }, [openTrades.length]);
+
+  const nearestTrade = openTrades.length
+    ? openTrades.reduce((a, b) => a.expiryAt < b.expiryAt ? a : b)
+    : null;
+  const nearestSecsLeft = nearestTrade ? Math.max(0, Math.floor((nearestTrade.expiryAt - Date.now()) / 1000)) : 0;
+  const nearestMins = Math.floor(nearestSecsLeft / 60);
+  const nearestSecs = nearestSecsLeft % 60;
   const payout     = currentMarket?.payout || 82;
   const profit     = (amount * payout / 100).toFixed(2);
   const bal        = balance();
@@ -42,9 +58,13 @@ export default function BottomControls() {
 
     const now = Date.now();
     const id = `t_${now}_${Math.random().toString(36).slice(2)}`;
+    // Use the same live ticker price the user sees on screen (not the
+    // stale snapshot from when the market list loaded), so the entry
+    // marker lands on the actual current candle instead of drifting.
+    const entryPrice = useStore.getState().livePrice ?? currentMarket.price;
     const trade = {
       id, mktId: currentMarket.id, mktName: currentMarket.name,
-      side, amount, entry: currentMarket.price,
+      side, amount, entry: entryPrice,
       dec: currentMarket.dec, payout,
       walType, openedAt: now,
       expiryAt: now + expMin * 60 * 1000,
@@ -57,11 +77,11 @@ export default function BottomControls() {
     showToast(`${side === 'buy' ? '▲ BUY' : '▼ SELL'} opened · ${expDisp} · $${amount}`);
 
     setTimeout(async () => {
-      let exitPrice = currentMarket.price;
+      let exitPrice = useStore.getState().livePrice ?? currentMarket.price;
       try {
         const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${currentMarket.symbol}`);
         if (r.ok) { const d = await r.json(); exitPrice = parseFloat(d.price); }
-      } catch { exitPrice = currentMarket.price * (1 + (Math.random() - 0.48) * 0.02); }
+      } catch { /* keep the live price we already have as the fallback */ }
 
       const priceWent = exitPrice > trade.entry ? 'up' : 'down';
       const won = side === 'buy' ? priceWent === 'up' : priceWent === 'down';
@@ -210,6 +230,11 @@ export default function BottomControls() {
             <span style={{ fontSize:11, color:'var(--t3)', fontWeight:600 }}>
               {openTrades.length} active trade{openTrades.length > 1 ? 's' : ''}
             </span>
+            {nearestTrade && (
+              <span style={{ fontSize:11, color:'var(--g0)', fontWeight:800, fontFamily:'JetBrains Mono, monospace' }}>
+                · {nearestMins}:{nearestSecs.toString().padStart(2,'0')}
+              </span>
+            )}
           </div>
           <span
             style={{ fontSize:11, color:'var(--g0)', fontWeight:700, cursor:'pointer' }}
