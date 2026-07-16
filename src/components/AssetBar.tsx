@@ -151,19 +151,47 @@ export default function AssetBar() {
 
   useEffect(() => {
     if (!currentMarket) return;
-    if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+    const symbol = currentMarket.symbol;
+    let stopped = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastMsgAt = Date.now();
+
+    function connect() {
+      if (wsRef.current) { try { wsRef.current.close(); } catch {} wsRef.current = null; }
+      const sym = symbol.toLowerCase();
+      const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${sym}@trade`);
+      ws.onmessage = (e) => {
+        lastMsgAt = Date.now();
+        const d = JSON.parse(e.data);
+        const p = parseFloat(d.p);
+        setLivePriceLocal(prev => { setPrevPrice(prev); return p; });
+        setLivePrice(p);
+      };
+      // A mobile connection can drop the socket silently (no close/error
+      // event) — the watchdog below catches that case. This handler covers
+      // the case where the socket *does* report closing/erroring, so we
+      // don't just give up and leave trades using a frozen price forever.
+      ws.onclose = () => { if (!stopped) reconnectTimer = setTimeout(connect, 1500); };
+      ws.onerror = () => { try { ws.close(); } catch {} };
+      wsRef.current = ws;
+    }
+
     setLivePriceLocal(null);
     useStore.getState().setLivePrice(null);
-    const sym = currentMarket.symbol.toLowerCase();
-    const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${sym}@trade`);
-    ws.onmessage = (e) => {
-      const d = JSON.parse(e.data);
-      const p = parseFloat(d.p);
-      setLivePriceLocal(prev => { setPrevPrice(prev); return p; });
-      setLivePrice(p);
+    connect();
+
+    // Watchdog: if no trade tick has arrived in 8s, assume the socket died
+    // silently (flaky LTE/wifi) and force a fresh connection.
+    const staleCheck = setInterval(() => {
+      if (Date.now() - lastMsgAt > 8000) connect();
+    }, 4000);
+
+    return () => {
+      stopped = true;
+      clearInterval(staleCheck);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (wsRef.current) { try { wsRef.current.close(); } catch {} wsRef.current = null; }
     };
-    wsRef.current = ws;
-    return () => { ws.close(); };
   }, [currentMarket?.symbol]);
 
   if (!currentMarket) return <div className="assetbar" />;
