@@ -124,9 +124,10 @@ export default function AssetBar() {
   const setCurrentMarket = useStore(s => s.setCurrentMarket);
   const trades          = useStore(s => s.trades);
   const expMin          = useStore(s => s.expMin);
+  const setLivePrice    = useStore(s => s.setLivePrice);
 
   const [showMarkets, setShowMarkets] = useState(false);
-  const [livePrice, setLivePrice]     = useState<number | null>(null);
+  const [livePrice, setLivePriceLocal] = useState<number | null>(null);
   const [prevPrice, setPrevPrice]     = useState<number | null>(null);
   const wsRef   = useRef<WebSocket | null>(null);
   const countdown = useRef<NodeJS.Timeout | null>(null);
@@ -151,13 +152,15 @@ export default function AssetBar() {
   useEffect(() => {
     if (!currentMarket) return;
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
-    setLivePrice(null);
+    setLivePriceLocal(null);
+    useStore.getState().setLivePrice(null);
     const sym = currentMarket.symbol.toLowerCase();
     const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${sym}@trade`);
     ws.onmessage = (e) => {
       const d = JSON.parse(e.data);
       const p = parseFloat(d.p);
-      setLivePrice(prev => { setPrevPrice(prev); return p; });
+      setLivePriceLocal(prev => { setPrevPrice(prev); return p; });
+      setLivePrice(p);
     };
     wsRef.current = ws;
     return () => { ws.close(); };
