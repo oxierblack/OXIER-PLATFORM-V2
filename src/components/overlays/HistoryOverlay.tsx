@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useStore } from '../../lib/store';
 import { fmt } from '../../lib/markets';
 
@@ -20,6 +20,12 @@ export default function HistoryOverlay() {
   const showConfirm = useStore(s => s.showConfirm);
   const showToast = useStore(s => s.showToast);
   const [tab, setTab] = useState<'open' | 'closed'>('open');
+  const [, forceTick] = useState(0);
+
+  useEffect(() => {
+    const iv = setInterval(() => forceTick(t => t + 1), 1000);
+    return () => clearInterval(iv);
+  }, []);
 
   const open = trades.filter(t => !t.resolved).sort((a,b) => b.openedAt - a.openedAt);
   const closed = trades.filter(t => t.resolved).sort((a,b) => (b.resolvedAt||0) - (a.resolvedAt||0));
