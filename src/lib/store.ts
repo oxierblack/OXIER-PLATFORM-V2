@@ -84,6 +84,12 @@ interface StoreState {
 
   openTradePriceLine: { id: string; entry: number; side: 'buy'|'sell' } | null;
   setOpenTradePriceLine: (v: { id: string; entry: number; side: 'buy'|'sell' } | null) => void;
+
+  // Single source of truth for "current price" — fed by the live ticker
+  // stream so the price used to open a trade always matches what's
+  // displayed on screen (and the last candle tick on the chart).
+  livePrice: number | null;
+  setLivePrice: (v: number | null) => void;
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -255,4 +261,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   openTradePriceLine: null,
   setOpenTradePriceLine: (openTradePriceLine) => set({ openTradePriceLine }),
+
+  livePrice: null,
+  setLivePrice: (livePrice) => set({ livePrice }),
 }));
